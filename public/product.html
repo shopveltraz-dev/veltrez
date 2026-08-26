@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VELTREZ</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css?v=__ASSETV__">
+</head>
+<body>
+  <header class="vz-header">
+    <div class="vz-header-in">
+      <a class="vz-logo" href="/"><img src="/img/wordmark.png" alt="VELTREZ"></a>
+      <nav class="vz-nav">
+        <a href="/#shop">Shop</a>
+        <a href="/#reviews">Reviews</a>
+        <a href="#" id="vz-track-btn">Track order</a>
+        <a href="#" id="vz-login-btn">Log in</a>
+        <a href="#" class="vz-reg-link" id="vz-reg-btn">Register</a>
+        <a href="#" id="vz-acct-btn" hidden>Account</a>
+        <button class="vz-cart-btn" id="vz-cart-btn">Cart <span id="vz-cart-count" style="display:none">0</span></button>
+      </nav>
+    </div>
+  </header>
+
+  <main class="vz-wrap">
+    <div class="vz-product" id="vz-product"><p class="muted" style="padding:40px 0">Loading…</p></div>
+    <section class="vz-reviews" id="vz-reviews" hidden>
+      <h2>Reviews <span class="spark">✦</span> <span class="vz-rating-sum" id="vz-rating-sum"></span></h2>
+      <div id="vz-review-form-wrap"></div>
+      <div id="vz-review-list"></div>
+    </section>
+  </main>
+
+  <footer class="vz-footer">
+    <img src="/img/wordmark.png" alt="VELTREZ"><br>
+    for girls who looked cute anyway · Jerusalem<br>
+    <a href="#" onclick="document.getElementById('vz-track-btn').click();return false;">Track your order</a>
+  </footer>
+
+  <script src="/shop.js?v=__ASSETV__"></script>
+  <script>
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const slug = new URLSearchParams(location.search).get('p') || '';
+    const root = document.getElementById('vz-product');
+
+    fetch('/api/products/' + encodeURIComponent(slug)).then(async r => {
+      if (!r.ok) throw new Error();
+      const { product: p } = await r.json();
+      let size = p.sizes[0] || null, qty = 1;
+      root.innerHTML = `
+        <div>
+          <div class="vz-gallery-main"><img id="vz-main-img" src="${esc(p.images[0])}" alt="${esc(p.name)}"></div>
+          ${p.images.length > 1 ? `<div class="vz-thumbs">${p.images.map((u, i) =>
+            `<img src="${esc(u)}" class="${i === 0 ? 'on' : ''}" data-i="${i}" alt="">`).join('')}</div>` : ''}
+        </div>
+        <div class="vz-pinfo">
+          <a href="/#shop" class="muted small">← back to the collection</a>
+          <h1>${esc(p.name)}</h1>
+          ${window.VZ_HIDE_PRICES ? '' : `<div><span class="price">₪${p.price}</span>${p.compare_at_price ? `<span class="compare">₪${p.compare_at_price}</span>` : ''}</div>`}
+          <p>${esc(p.description)}</p>
+          <a class="vz-review-link" href="#vz-reviews">${p.review_count
+            ? `<span class="vz-stars">${'★'.repeat(Math.round(p.rating))}${'☆'.repeat(5 - Math.round(p.rating))}</span> ${p.rating} · ${p.review_count} review${p.review_count > 1 ? 's' : ''}`
+            : 'No reviews yet'} — <b>write one ✦</b></a>
+          <label style="margin-top:18px">Size</label>
+          <div class="vz-sizes">${p.sizes.map((s, i) =>
+            `<button class="vz-size${i === 0 ? ' on' : ''}" data-s="${esc(s)}">${esc(s)}</button>`).join('')}</div>
+          ${p.stock > 0 ? `
+            <div class="vz-addrow">
+              <div class="vz-qty"><button id="vz-minus">−</button><span id="vz-qty-n">1</span><button id="vz-plus">+</button></div>
+              <button class="vz-btn" id="vz-add" style="flex:1">Add to cart ✦</button>
+            </div>
+            ${p.stock <= 5 ? `<p class="vz-stock-note">Only ${p.stock} left — hurry 💗</p>` : ''}`
+          : '<p class="vz-stock-note">Sold out… restock soon 💔</p>'}
+        </div>`;
+
+      document.querySelectorAll('.vz-thumbs img').forEach(t => t.onclick = () => {
+        document.getElementById('vz-main-img').src = p.images[Number(t.dataset.i)];
+        document.querySelectorAll('.vz-thumbs img').forEach(x => x.classList.remove('on'));
+        t.classList.add('on');
+      });
+      document.querySelectorAll('.vz-size').forEach(b => b.onclick = () => {
+        size = b.dataset.s;
+        document.querySelectorAll('.vz-size').forEach(x => x.classList.remove('on'));
+        b.classList.add('on');
+      });
+      const qn = () => document.getElementById('vz-qty-n');
+      const minus = document.getElementById('vz-minus'), plus = document.getElementById('vz-plus');
+      if (minus) minus.onclick = () => { qty = Math.max(1, qty - 1); qn().textContent = qty; };
+      if (plus)  plus.onclick  = () => { qty = Math.min(10, qty + 1); qn().textContent = qty; };
+      const add = document.getElementById('vz-add');
+      if (add) add.onclick = () => vzAddToCart(p, qty, size);
+
+      document.title = `${p.name} — VELTREZ`;
+      loadReviews(p);
+      window.addEventListener('vz:auth', () => renderReviewForm(p));
+    }).catch(() => {
+      root.innerHTML = `<div style="padding:60px 0;text-align:center;grid-column:1/-1">
+        <h1>Oops <span class="spark">✦</span></h1>
+        <p class="muted">That product doesn't exist (anymore).</p>
+        <a class="vz-btn" style="width:auto" href="/#shop">Back to the shop</a></div>`;
+    });
+
+    // ── Reviews ──
+    const stars = n => '★'.repeat(n) + '☆'.repeat(5 - n);
+    async function loadReviews(p) {
+      const sec = document.getElementById('vz-reviews');
+      sec.hidden = false;
+      renderReviewForm(p);
+      const list = document.getElementById('vz-review-list');
+      try {
+        const { reviews } = await fetch('/api/products/' + encodeURIComponent(p.slug) + '/reviews').then(r => r.json());
+        const sum = document.getElementById('vz-rating-sum');
+        if (reviews.length) {
+          const avg = reviews.reduce((s, r) => s + r.rating, 0) / reviews.length;
+          sum.innerHTML = `<span class="vz-stars">${stars(Math.round(avg))}</span> ${avg.toFixed(1)} · ${reviews.length} review${reviews.length > 1 ? 's' : ''}`;
+        } else sum.textContent = '';
+        list.innerHTML = reviews.length ? reviews.map(r => `
+          <div class="vz-review">
+            <div class="vz-review-head"><b>${esc(r.name)}</b><span class="vz-stars">${stars(r.rating)}</span></div>
+            ${r.text ? `<p>${esc(r.text)}</p>` : ''}
+            <span class="muted small">${new Date(r.created_at.replace(' ', 'T') + 'Z').toLocaleDateString()}</span>
+          </div>`).join('')
+          : '<p class="muted">No reviews yet — be the first 💗</p>';
+      } catch { list.innerHTML = '<p class="muted">Could not load reviews.</p>'; }
+    }
+    function renderReviewForm(p) {
+      const wrap = document.getElementById('vz-review-form-wrap');
+      const u = window.vzGetUser && window.vzGetUser();
+      if (!u) {
+        wrap.innerHTML = `<div class="vz-review-cta">
+          <div><b>Got this one? Write a review 🎀</b><div class="muted small">You need an account — takes 30 seconds.</div></div>
+          <div class="vz-cta-btns">
+            <button class="vz-btn mini" id="vz-review-signup">Sign up to review ✦</button>
+            <button class="vz-btn ghost mini" id="vz-review-login">Log in</button></div></div>`;
+        document.getElementById('vz-review-signup').onclick = () => window.vzOpenAuth('register');
+        document.getElementById('vz-review-login').onclick  = () => window.vzOpenAuth('login');
+        return;
+      }
+      let rating = 5;
+      wrap.innerHTML = `<form class="vz-review-form" id="vz-review-form">
+        <div class="vz-review-head"><b>Your review, ${esc(u.name.split(' ')[0])}</b>
+          <div class="vz-star-pick" id="vz-star-pick">${[1,2,3,4,5].map(n => `<button type="button" data-n="${n}" class="on">★</button>`).join('')}</div></div>
+        <textarea name="text" maxlength="500" rows="3" placeholder="fit, fabric, vibe… (optional)"></textarea>
+        <button class="vz-btn mini" type="submit">Post review ✦</button>
+        <p class="vz-co-err" id="vz-review-err"></p></form>`;
+      const pick = document.getElementById('vz-star-pick');
+      pick.querySelectorAll('button').forEach(b => b.onclick = () => {
+        rating = Number(b.dataset.n);
+        pick.querySelectorAll('button').forEach(x => x.classList.toggle('on', Number(x.dataset.n) <= rating));
+      });
+      document.getElementById('vz-review-form').onsubmit = async e => {
+        e.preventDefault();
+        const err = document.getElementById('vz-review-err'); err.textContent = '';
+        try {
+          const r = await fetch('/api/products/' + encodeURIComponent(p.slug) + '/reviews', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + window.vzGetToken() },
+            body: JSON.stringify({ rating, text: e.target.text.value }),
+          });
+          const j = await r.json();
+          if (r.status === 401) { window.vzOpenAuth('login'); throw new Error('Please log in again'); }
+          if (!r.ok) throw new Error(j.error || 'Could not post review');
+          vzToast('Review posted 💗');
+          loadReviews(p);
+        } catch (ex) { err.textContent = ex.message; }
+      };
+    }
+  </script>
+</body>
+</html>

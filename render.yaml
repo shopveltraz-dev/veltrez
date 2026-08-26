@@ -1,0 +1,57 @@
+# Render blueprint — deploys VELTREZ as a free web service.
+# Data persistence on the free tier (ephemeral disk) comes from Supabase
+# Storage: set SUPABASE_URL + SUPABASE_SERVICE_KEY in the Render dashboard
+# (see storage.js). Without them the DB resets on every restart.
+services:
+  - type: web
+    name: veltrez
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: node server.js
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # Transactional email (see email.js). Without EMAIL_PROVIDER=smtp every
+      # order confirmation is written to the log and delivered to nobody.
+      # Gmail works via an App Password, which requires 2-Step Verification
+      # switched on for that Google account first.
+      - key: EMAIL_PROVIDER
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false
+      # "1" opens checkout. Anything else = storefront browsable, checkout shows "coming soon".
+      - key: SHOP_OPEN
+        value: "0"
+      # TESTING ONLY: stores customer passwords unhashed so the admin Customers
+      # tab can verify every field. Set to "0" (and ask users to reset) before launch.
+      - key: PLAINTEXT_PASSWORDS
+        value: "1"
+      # Shipping rule (₪): flat rate below the threshold, free above it
+      - key: SHIPPING_FLAT
+        value: "25"
+      - key: FREE_SHIP_OVER
+        value: "250"
+      # Optional shared secret for /api/keepalive (also set it as the
+      # KEEPALIVE_TOKEN secret in the GitHub repo if used)
+      - key: KEEPALIVE_TOKEN
+        sync: false
+      # One-off admin password recovery: set to any value, read the new password
+      # from the deploy log, then delete the variable. See admin-reset.js.
+      - key: ADMIN_RESET
+        sync: false

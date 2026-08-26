@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VELTREZ Admin</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css?v=__ASSETV__">
+  <style>
+    .adm-wrap { max-width: 1120px; margin: 0 auto; padding: 24px 20px 80px; }
+    .adm-tabs { display: flex; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
+    .adm-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin: 18px 0; }
+    .adm-card { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px 20px; }
+    .adm-card b { font-size: 26px; color: var(--cherry); display: block; }
+    table { width: 100%; border-collapse: collapse; background: #fff; border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); }
+    th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: middle; }
+    th { background: var(--blush); font-family: 'Fredoka', sans-serif; }
+    td input, td select { padding: 6px 8px; border-radius: 8px; font-size: 14px; }
+    td input[type=number] { width: 76px; }
+    .adm-items { font-size: 13px; color: var(--muted); }
+    .st { font-weight: 800; text-transform: capitalize; }
+    .st-pending { color: #c77c00; } .st-confirmed { color: #b5122f; } .st-shipped { color: #6b4bd6; }
+    .st-delivered { color: #1e8a4c; } .st-cancelled { color: var(--muted); }
+    .adm-login { max-width: 380px; margin: 8vh auto; background: #fff; padding: 28px; border-radius: var(--radius); box-shadow: var(--shadow); }
+    .rowbtns { display: flex; gap: 6px; }
+    .mini { width: auto; padding: 7px 14px; font-size: 13px; }
+    .tbl-scroll { overflow-x: auto; }
+    .hiddenrow td { opacity: .5; }
+  </style>
+</head>
+<body>
+  <header class="vz-header">
+    <div class="vz-header-in">
+      <a class="vz-logo" href="/"><img src="/img/wordmark.png" alt="VELTREZ"></a>
+      <nav class="vz-nav"><span class="muted">Admin</span>
+        <button class="vz-cart-btn" id="logout" style="display:none">Log out</button>
+      </nav>
+    </div>
+  </header>
+
+  <div class="adm-wrap">
+    <div class="adm-login" id="login-box">
+      <h2>Admin login <span class="spark">✦</span></h2>
+      <form id="login-form">
+        <label>Email<input name="email" type="email" required></label>
+        <label>Password<input name="password" type="password" required></label>
+        <button class="vz-btn" style="margin-top:16px">Sign in</button>
+        <p class="vz-co-err" id="login-err"></p>
+      </form>
+    </div>
+
+    <div id="panel" style="display:none">
+      <div class="adm-tabs">
+        <button class="vz-chip on" data-tab="overview">Overview</button>
+        <button class="vz-chip" data-tab="orders">Orders</button>
+        <button class="vz-chip" data-tab="products">Products</button>
+        <button class="vz-chip" data-tab="customers">Customers</button>
+        <button class="vz-chip" data-tab="reviews">Reviews</button>
+        <button class="vz-chip" data-tab="settings">Settings</button>
+      </div>
+      <div id="tab-overview"></div>
+      <div id="tab-orders" style="display:none"></div>
+      <div id="tab-products" style="display:none"></div>
+      <div id="tab-customers" style="display:none"></div>
+      <div id="tab-reviews" style="display:none"></div>
+      <div id="tab-settings" style="display:none">
+        <div class="adm-login" style="margin:20px 0">
+          <h3>Change password</h3>
+          <form id="pw-form">
+            <label>Current password<input name="current" type="password" required></label>
+            <label>New password (min 8)<input name="next" type="password" required minlength="8"></label>
+            <button class="vz-btn" style="margin-top:14px">Change</button>
+            <p class="vz-co-err" id="pw-msg"></p>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const $ = s => document.querySelector(s);
+    let TOKEN = localStorage.getItem('vz_admin_token') || '';
+
+    async function api(path, opts = {}) {
+      const r = await fetch('/api' + path, {
+        ...opts,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + TOKEN, ...(opts.headers || {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      if (r.status === 401) { logout(); throw new Error('Session expired — sign in again'); }
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Request failed');
+      return j;
+    }
+
+    function logout() {
+      TOKEN = ''; localStorage.removeItem('vz_admin_token');
+      $('#panel').style.display = 'none'; $('#login-box').style.display = '';
+      $('#logout').style.display = 'none';
+    }
+    $('#logout').onclick = logout;
+
+    $('#login-form').onsubmit = async e => {
+      e.preventDefault();
+      $('#login-err').textContent = '';
+      try {
+        const data = Object.fromEntries(new FormData(e.target).entries());
+        const r = await fetch('/api/auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Login failed');
+        if (j.user.role !== 'admin') throw new Error('Not an admin account');
+        TOKEN = j.token; localStorage.setItem('vz_admin_token', TOKEN);
+        enter();
+      } catch (ex) { $('#login-err').textContent = ex.message; }
+    };
+
+    function enter() {
+      $('#login-box').style.display = 'none';
+      $('#panel').style.display = '';
+      $('#logout').style.display = '';
+      loadOverview(); loadOrders(); loadProducts(); loadCustomers(); loadReviews();
+    }
+
+    async function loadReviews() {
+      try {
+        const { reviews } = await api('/admin/reviews');
+        $('#tab-reviews').innerHTML = !reviews.length ? '<p class="muted">No reviews yet.</p>' : `
+        <div class="tbl-scroll"><table><tr>
+          <th>#</th><th>Product</th><th>Customer</th><th>Stars</th><th>Review</th><th>When</th><th>Visible</th><th></th></tr>
+          ${reviews.map(r => `<tr class="${r.approved ? '' : 'hiddenrow'}">
+            <td>${r.id}</td>
+            <td><a href="/product.html?p=${encodeURIComponent(r.slug)}" target="_blank"><b>${esc(r.product)}</b></a></td>
+            <td>${esc(r.customer)}<div class="adm-items">${esc(r.email)}</div></td>
+            <td style="color:#e8a317">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</td>
+            <td>${esc(r.text) || '<span class="muted">—</span>'}</td>
+            <td class="adm-items">${esc(String(r.created_at).slice(0, 16))}</td>
+            <td><input type="checkbox" ${r.approved ? 'checked' : ''} data-rid="${r.id}"></td>
+            <td><button class="vz-btn ghost mini" data-rdel="${r.id}">Delete</button></td>
+          </tr>`).join('')}
+        </table></div>`;
+        document.querySelectorAll('[data-rid]').forEach(inp => inp.onchange = async () => {
+          try { await api('/admin/reviews/' + inp.dataset.rid, { method: 'PATCH', body: { approved: inp.checked } }); loadReviews(); }
+          catch (ex) { alert(ex.message); }
+        });
+        document.querySelectorAll('[data-rdel]').forEach(btn => btn.onclick = async () => {
+          try { await api('/admin/reviews/' + btn.dataset.rdel, { method: 'DELETE' }); loadReviews(); }
+          catch (ex) { alert(ex.message); }
+        });
+      } catch (ex) { $('#tab-reviews').textContent = ex.message; }
+    }
+
+    let ALL_CUSTOMERS = [];
+    async function loadCustomers() {
+      try {
+        const { customers } = await api('/admin/customers');
+        ALL_CUSTOMERS = customers;
+        $('#tab-customers').innerHTML = `
+          <input id="cust-search" placeholder="Search name, email or phone…" style="max-width:420px;margin-bottom:12px">
+          <div id="cust-list"></div>
+          <div id="cust-profile"></div>`;
+        $('#cust-search').oninput = e => renderCustomers(e.target.value);
+        renderCustomers('');
+      } catch (ex) { $('#tab-customers').textContent = ex.message; }
+    }
+    function renderCustomers(q) {
+      q = q.trim().toLowerCase();
+      const customers = ALL_CUSTOMERS.filter(c => !q ||
+        [c.name, c.email, c.phone].some(v => String(v || '').toLowerCase().includes(q)));
+      const showPw = customers.some(c => c.password != null);
+      $('#cust-list').innerHTML = !customers.length ? '<p class="muted">No customers match.</p>' : `
+        ${showPw ? '<p class="vz-co-err">⚠ PLAINTEXT_PASSWORDS=1 is on — passwords shown below. Dev only, turn off before launch.</p>' : ''}
+        <div class="tbl-scroll"><table><tr>
+          <th>#</th><th>Name</th><th>Email</th><th>Phone</th><th>Role</th>${showPw ? '<th>Password</th>' : ''}<th>Joined</th><th></th></tr>
+          ${customers.map(c => `<tr>
+            <td>${c.id}</td><td><b>${esc(c.name)}</b></td><td>${esc(c.email)}</td><td>${esc(c.phone || '-')}</td>
+            <td>${esc(c.role)}</td>${showPw ? `<td><code>${c.password == null ? '(hashed)' : esc(c.password)}</code></td>` : ''}
+            <td class="adm-items">${esc(String(c.created_at).slice(0, 16))}</td>
+            <td><button class="vz-btn ghost mini" data-cprof="${c.id}">Everything</button></td>
+          </tr>`).join('')}
+        </table></div>`;
+      document.querySelectorAll('[data-cprof]').forEach(b => b.onclick = () => showProfile(b.dataset.cprof));
+    }
+    async function showProfile(id) {
+      const box = $('#cust-profile');
+      box.innerHTML = '<p class="muted">Loading…</p>';
+      try {
+        const { customer: c, orders, reviews, activity, totals } = await api('/admin/customers/' + id + '/profile');
+        const st = s => `<span class="st st-${esc(s)}">${esc(s)}</span>`;
+        box.innerHTML = `<div class="adm-card" style="margin-top:18px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px">
+            <h3 style="margin:0">${esc(c.name)} <span class="muted small">#${c.id} · ${esc(c.role)}</span></h3>
+            <button class="vz-btn ghost mini" onclick="document.getElementById('cust-profile').innerHTML=''">Close</button></div>
+          <p class="adm-items">${esc(c.email)} · ${esc(c.phone || '-')} · joined ${esc(String(c.created_at).slice(0, 16))}
+            ${c.password ? ` · password <code>${esc(c.password)}</code>` : ''}</p>
+          <div class="adm-cards" style="margin:10px 0">
+            <div class="adm-card"><b>${totals.orders}</b>Orders</div>
+            <div class="adm-card"><b>₪${totals.spent}</b>Spent</div>
+            <div class="adm-card"><b>${reviews.length}</b>Reviews</div>
+          </div>
+          <h4>Orders</h4>
+          ${!orders.length ? '<p class="muted small">None.</p>' : `<div class="tbl-scroll"><table><tr><th>#</th><th>Items</th><th>Total</th><th>Pay</th><th>Status</th><th>Placed</th></tr>
+            ${orders.map(o => `<tr><td><b>${esc(o.order_number)}</b></td>
+              <td class="adm-items">${o.items.map(i => `${i.qty}× ${esc(i.name)} (${esc(i.size || '-')})`).join('<br>')}</td>
+              <td>₪${o.total}</td><td>${esc(o.payment_method)}</td><td>${st(o.status)}</td>
+              <td class="adm-items">${esc(String(o.created_at).slice(0, 16))}</td></tr>`).join('')}</table></div>`}
+          <h4>Reviews</h4>
+          ${!reviews.length ? '<p class="muted small">None.</p>' : `<div class="tbl-scroll"><table><tr><th>Product</th><th>Stars</th><th>Text</th><th>Visible</th><th>When</th></tr>
+            ${reviews.map(r => `<tr><td><a href="/product.html?p=${encodeURIComponent(r.slug)}" target="_blank">${esc(r.product)}</a></td>
+              <td style="color:#e8a317">${'★'.repeat(r.rating)}${'☆'.repeat(5 - r.rating)}</td><td>${esc(r.text) || '<span class="muted">—</span>'}</td>
+              <td>${r.approved ? 'yes' : 'hidden'}</td><td class="adm-items">${esc(String(r.created_at).slice(0, 16))}</td></tr>`).join('')}</table></div>`}
+          <h4>Activity</h4>
+          ${!activity.length ? '<p class="muted small">None.</p>' : `<div class="tbl-scroll"><table><tr><th>When</th><th>Action</th><th>Detail</th></tr>
+            ${activity.map(a => `<tr><td class="adm-items">${esc(String(a.ts).slice(0, 16))}</td><td>${esc(a.action)}</td><td class="adm-items">${esc(a.detail || '')}</td></tr>`).join('')}</table></div>`}
+        </div>`;
+        box.scrollIntoView({ behavior: 'smooth' });
+      } catch (ex) { box.innerHTML = `<p class="vz-co-err">${esc(ex.message)}</p>`; }
+    }
+
+    document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+      document.querySelectorAll('[data-tab]').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      ['overview', 'orders', 'products', 'customers', 'reviews', 'settings'].forEach(t =>
+        $('#tab-' + t).style.display = t === b.dataset.tab ? '' : 'none');
+    });
+
+    async function loadOverview() {
+      try {
+        const o = await api('/admin/overview');
+        $('#tab-overview').innerHTML = `<div class="adm-cards">
+          <div class="adm-card"><b>₪${o.revenue}</b>Revenue</div>
+          <div class="adm-card"><b>${o.orders}</b>Orders</div>
+          <div class="adm-card"><b>${o.pending}</b>Pending</div>
+          <div class="adm-card"><b>${o.products}</b>Products</div>
+          <div class="adm-card"><b>${o.low_stock}</b>Low stock (≤3)</div>
+        </div>`;
+      } catch (ex) { $('#tab-overview').textContent = ex.message; }
+    }
+
+    const STATUSES = ['pending', 'confirmed', 'shipped', 'delivered', 'cancelled'];
+    async function loadOrders() {
+      try {
+        const { orders } = await api('/admin/orders');
+        $('#tab-orders').innerHTML = !orders.length ? '<p class="muted">No orders yet.</p>' : `
+        <div class="tbl-scroll"><table><tr>
+          <th>#</th><th>Customer</th><th>Items</th><th>Total</th><th>Pay</th><th>Placed</th><th>Status</th></tr>
+          ${orders.map(o => `<tr>
+            <td><b>${esc(o.order_number)}</b></td>
+            <td>${esc(o.customer_name)}<div class="adm-items">${esc(o.email)}${o.phone ? ' · ' + esc(o.phone) : ''}<br>${esc(o.address)}, ${esc(o.city)}${o.notes ? '<br>📝 ' + esc(o.notes) : ''}</div></td>
+            <td class="adm-items">${o.items.map(i => `${i.qty}× ${esc(i.name)} (${esc(i.size || '-')})`).join('<br>')}</td>
+            <td><b>₪${o.total}</b>${o.shipping ? `<div class="adm-items">incl. ₪${o.shipping} ship</div>` : ''}</td>
+            <td>${esc(o.payment_method)}</td>
+            <td class="adm-items">${esc(String(o.created_at).slice(0, 16))}</td>
+            <td><select data-oid="${o.id}">${STATUSES.map(s =>
+              `<option value="${s}"${s === o.status ? ' selected' : ''}>${s}</option>`).join('')}</select>
+              <div class="st st-${esc(o.status)}">${esc(o.status)}</div></td>
+          </tr>`).join('')}
+        </table></div>`;
+        document.querySelectorAll('[data-oid]').forEach(sel => sel.onchange = async () => {
+          try {
+            await api('/admin/orders/' + sel.dataset.oid, { method: 'PATCH', body: { status: sel.value } });
+            loadOrders(); loadOverview(); loadProducts();
+          } catch (ex) { alert(ex.message); }
+        });
+      } catch (ex) { $('#tab-orders').textContent = ex.message; }
+    }
+
+    async function loadProducts() {
+      try {
+        const { products } = await api('/admin/products');
+        $('#tab-products').innerHTML = `
+        <div class="tbl-scroll"><table><tr>
+          <th>Product</th><th>₪ Price</th><th>Stock</th><th>Sold</th><th>Fave</th><th>Hidden</th><th>Photo</th></tr>
+          ${products.map(p => `<tr class="${p.hidden ? 'hiddenrow' : ''}">
+            <td><img src="${esc(p.image_url || '')}" style="width:42px;height:42px;object-fit:cover;border-radius:8px;vertical-align:middle"> <b>${esc(p.name)}</b><div class="adm-items">${esc(p.category)} · ${esc(p.sizes)}</div></td>
+            <td><input type="number" step="1" min="0" value="${p.price}" data-pid="${p.id}" data-f="price"></td>
+            <td><input type="number" step="1" min="0" value="${p.stock}" data-pid="${p.id}" data-f="stock"></td>
+            <td>${p.sold}</td>
+            <td><input type="checkbox" ${p.featured ? 'checked' : ''} data-pid="${p.id}" data-f="featured"></td>
+            <td><input type="checkbox" ${p.hidden ? 'checked' : ''} data-pid="${p.id}" data-f="hidden"></td>
+            <td><button class="vz-btn ghost mini" data-up="${p.id}">Upload</button></td>
+          </tr>`).join('')}
+        </table></div>
+        <p class="muted small" style="margin-top:10px">Edits save on change. Hidden products don't show in the shop.</p>`;
+        document.querySelectorAll('[data-pid]').forEach(inp => inp.onchange = async () => {
+          const val = inp.type === 'checkbox' ? (inp.checked ? 1 : 0) : inp.value;
+          try { await api('/admin/products/' + inp.dataset.pid, { method: 'PATCH', body: { [inp.dataset.f]: val } }); }
+          catch (ex) { alert(ex.message); loadProducts(); }
+        });
+        document.querySelectorAll('[data-up]').forEach(btn => btn.onclick = () => {
+          const inp = document.createElement('input');
+          inp.type = 'file'; inp.accept = 'image/png,image/jpeg,image/webp';
+          inp.onchange = () => {
+            const file = inp.files[0];
+            if (!file) return;
+            const rd = new FileReader();
+            rd.onload = async () => {
+              try {
+                await api(`/admin/products/${btn.dataset.up}/upload`, { method: 'POST', body: { data: rd.result, as: 'main' } });
+                loadProducts();
+              } catch (ex) { alert(ex.message); }
+            };
+            rd.readAsDataURL(file);
+          };
+          inp.click();
+        });
+      } catch (ex) { $('#tab-products').textContent = ex.message; }
+    }
+
+    $('#pw-form').onsubmit = async e => {
+      e.preventDefault();
+      const msg = $('#pw-msg'); msg.textContent = '';
+      try {
+        await api('/auth/password', { method: 'POST', body: Object.fromEntries(new FormData(e.target).entries()) });
+        msg.textContent = 'Password changed ✔'; msg.style.color = '#1e8a4c';
+        e.target.reset();
+      } catch (ex) { msg.textContent = ex.message; msg.style.color = ''; }
+    };
+
+    if (TOKEN) enter();
+  </script>
+</body>
+</html>

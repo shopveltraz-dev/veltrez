@@ -1,0 +1,26 @@
+{
+  "name": "veltrez",
+  "version": "1.0.0",
+  "description": "VELTREZ — Y2K girly fashion shop",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^9.0.3",
+    "sql.js": "^1.12.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}
