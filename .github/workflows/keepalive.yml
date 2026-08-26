@@ -1,0 +1,48 @@
+# Keeps the Supabase free project from being paused for inactivity.
+#
+# Supabase pauses a free project after roughly a week without activity, and a
+# paused project loses its DNS record — which crashes the server on boot and
+# takes the whole site down.
+#
+# /api/keepalive makes the server perform a real Supabase request, so this job
+# refreshes the inactivity clock on both Render and Supabase at once.
+name: keepalive
+
+on:
+  schedule:
+    # 06:30 UTC every third day — comfortably inside the ~7 day pause window
+    # even if a run or two is skipped (GitHub drops scheduled runs under load).
+    - cron: '30 6 */3 * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping VELTREZ keepalive
+        env:
+          URL: ${{ secrets.KEEPALIVE_URL }}
+          TOKEN: ${{ secrets.KEEPALIVE_TOKEN }}
+        run: |
+          set -euo pipefail
+          : "${URL:?Set the KEEPALIVE_URL repo secret to https://<your-render-host>/api/keepalive}"
+
+          # Render's free tier spins down when idle and needs up to ~60s to wake,
+          # so a single short request would report a false failure.
+          for attempt in 1 2 3 4 5; do
+            code=$(curl -sS -m 90 -o /tmp/out.json -w '%{http_code}' \
+              ${TOKEN:+-H "x-keepalive-token: $TOKEN"} "$URL" || echo 000)
+            echo "attempt $attempt -> HTTP $code"
+            cat /tmp/out.json 2>/dev/null || true
+            echo
+            if [ "$code" = "200" ]; then
+              echo "Supabase reachable — inactivity clock reset."
+              exit 0
+            fi
+            sleep 30
+          done
+
+          echo "::error::Keepalive failed after 5 attempts. Supabase may be paused \
+          or the Render service may be down. Check https://dashboard.render.com \
+          and https://supabase.com/dashboard/project/_/settings/general"
+          exit 1
