@@ -24,6 +24,8 @@ let _cloudUpload = Promise.resolve();
 let _cloudWritable = false;
 let _cloudStatus = 'disabled'; // disabled | ok | missing | unreachable | error
 
+let _everWritten = false;
+
 function flush() {
   if (!_dirty || !_db) return;
   _dirty = false;
@@ -36,6 +38,7 @@ function flush() {
 
 function save() {
   _dirty = true;
+  _everWritten = true;
   if (_saveTimer) return;
   _saveTimer = setTimeout(() => { _saveTimer = null; flush(); }, 400);
   if (_saveTimer.unref) _saveTimer.unref();
@@ -296,6 +299,30 @@ async function init() {
   _db = bytes ? new SQL.Database(bytes) : new SQL.Database();
   migrate();
   seed();
+
+  // Deploy-swap race: on a rolling deploy the new instance boots (and reads
+  // the snapshot) while the old one is still serving traffic. Anything written
+  // to the old instance in that window lands in the bucket AFTER we read it,
+  // and our first write would silently overwrite it. So for a short while after
+  // boot, as long as this process has not written anything itself, re-read the
+  // snapshot and adopt it if it changed.
+  if (storage.enabled() && _cloudWritable && !process.env.DB_NO_RESYNC) {
+    const loaded = bytes ? Buffer.from(bytes) : null;
+    const resync = async () => {
+      if (_everWritten) return;
+      try {
+        const r = await storage.fetchDb();
+        if (r.status !== 'ok' || !r.bytes || _everWritten) return;
+        if (loaded && r.bytes.equals(loaded)) return;
+        if (!r.bytes.slice(0, 16).equals(Buffer.from('SQLite format 3\0'))) return;
+        _db = new SQL.Database(r.bytes);
+        migrate(); seed();
+        fs.writeFileSync(DB_PATH, r.bytes);
+        console.log('☁️  Adopted newer cloud snapshot written by the previous instance');
+      } catch (e) { console.warn('cloud resync skipped:', e.message); }
+    };
+    for (const ms of [45e3, 120e3, 300e3]) setTimeout(resync, ms).unref();
+  }
   return module.exports;
 }
 

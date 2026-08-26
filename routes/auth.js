@@ -38,15 +38,21 @@ router.post('/register',
     const email    = String(req.body.email || '').trim().toLowerCase();
     const phone    = String(req.body.phone || '').trim().slice(0, 30);
     const password = String(req.body.password || '');
-    if (!name) return res.status(400).json({ error: 'Name required' });
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: 'Valid email required' });
-    if (!/^\+?[\d\s().-]{7,}$/.test(phone)) return res.status(400).json({ error: 'Valid phone number required' });
-    if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    // Every failed attempt is audited (never the password) so "I signed up but
+    // it's not there" can be answered from the admin audit log alone.
+    const fail = (code, msg) => {
+      audit(null, email || null, 'auth.register_failed', `${msg} (name="${name}", phone="${phone}")`);
+      return res.status(code).json({ error: msg });
+    };
+    if (!name) return fail(400, 'Name required');
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return fail(400, 'Valid email required');
+    if (!/^\+?[\d\s().-]{7,}$/.test(phone)) return fail(400, 'Valid phone number required');
+    if (password.length < 6) return fail(400, 'Password must be at least 6 characters');
     if (req.body.password_confirm !== undefined && String(req.body.password_confirm) !== password) {
-      return res.status(400).json({ error: 'Passwords do not match' });
+      return fail(400, 'Passwords do not match');
     }
     if (db.prepare('SELECT id FROM customers WHERE email=?').get(email)) {
-      return res.status(409).json({ error: 'An account with this email already exists' });
+      return fail(409, 'An account with this email already exists');
     }
     const info = db.prepare('INSERT INTO customers (name,email,password_hash,phone,role) VALUES (?,?,?,?,?)')
       .run(name, email, storePassword(password), phone, 'customer');
