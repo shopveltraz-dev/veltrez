@@ -266,6 +266,24 @@ async function main() {
     console.log(`🗂   Admin panel: http://localhost:${PORT}/admin.html`);
     console.log(`📧  Email mode: ${process.env.EMAIL_PROVIDER || 'dev (emails print here in console)'}\n`);
   });
+
+  // Self keep-warm. Free hosts spin the instance down after ~15 min without
+  // inbound HTTP, and external cron pingers (GitHub Actions) are throttled to
+  // an hour or more between runs — far too slow. While the process is awake it
+  // requests its own public URL every 10 minutes, which counts as inbound
+  // traffic and keeps it from ever idling. Only runs when the host tells us
+  // the public URL (Render sets RENDER_EXTERNAL_URL); set SELF_PING=0 to disable.
+  {
+    const base = process.env.SELF_PING_URL || process.env.RENDER_EXTERNAL_URL;
+    if (base && process.env.SELF_PING !== '0' && typeof fetch === 'function') {
+      const every = Number(process.env.SELF_PING_INTERVAL_MS || 10 * 60e3);
+      const ping = () => fetch(`${base.replace(/\/$/, '')}/api/health`, { headers: { 'user-agent': 'veltrez-selfping' } })
+        .then(r => { if (!r.ok) console.warn('self-ping: HTTP', r.status); })
+        .catch(e => console.warn('self-ping failed:', e.message));
+      setInterval(ping, every).unref();
+      console.log(`🔥  Self keep-warm: pinging ${base} every ${Math.round(every / 60e3)} min`);
+    }
+  }
 }
 
 main().catch(err => { console.error('Startup error:', err); process.exit(1); });
